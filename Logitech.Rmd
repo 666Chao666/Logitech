@@ -1,0 +1,392 @@
+---
+title: "Logitech Interview"
+author: "Chao Zhang"
+date: "08/06/2020"
+output: pdf_document
+---
+
+## introduction, 
+Aiming to take on the challenging goal in neuroscience that to read and decode mental content from brain activity, Gallant et. al. at UC Berkeley developed a quantitative receptive-field model to characterize the relationship between visual stimuli and fMRI activities in early visual areas.[1] Compared to previous studies, their models were directly estimated from responses evoked by natural images, and they were able to describe the tuning of individual voxels for space, orientation and spatial frequencies. [1] Their study contained two different stages: firstly the construction of the receptive-field models using fMRI data of study participants viewing 1,750 natural images, and in second stage they showed that identifying, from a large set of natural images, which specific one was seen by an observer could be achieved with high accuracy. 
+This report documents the process of replicating the first stage of Identifying natural images from human brain activity, which is, constructing a simpler () model based on the measurements of 20 voxels' responses from the original 1750 natural images used in the original study. Firstly, basic data description, then model description, then training results comparison the model selection, then diagnostic analysis with some discussion of advantages and disadvantages of each, and lastly the prediction on the first voxel of 120 out-of-sample natural images.
+
+```{r setup and data prep, echo = FALSE, message=FALSE, warning=FALSE}
+# load packages
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(HDCI)
+library(doParallel)
+library(foreach)
+library(ggplot2)
+library(corrplot)
+library(knitr)
+library(kableExtra)
+
+# set default knitr chunks
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.height = 4,
+	fig.pos = "H",
+	fig.width = 6,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE
+)
+
+# source functions
+source("R/dataSplit.R")
+source("R/glmModelSelection.R")
+source("R/glmModelConstruction.R")
+source("R/tenFold.R")
+
+# load data
+load("data/fMRIdata.RData")
+
+# split data for training, validation and test by (76%, 20% and 20%)
+all_data <- dataSplit(fit_feat, resp_dat)
+
+# useful var's and settings
+voxel <- 1:20
+registerDoParallel(7)
+
+
+```
+
+## basic data description 
+The 1750 natural images are in grey-scale and of the size 128 by 128. Similar to the original study, the iamges are already transformed with Gabor wavelets hence with size reduced to 10921 (instead of original 128*128=16384) per image. However, the original Gabor transformation matrix is not available in entirety for this project: only the real part of the 10921 Gabor wavelets are available. Hence there are some limitations on analysis which will be discussed later. 
+Along with the iamges, there are in total 20 voxels' responses measures per image which are used as the dependent variables in model estimation. In the original study, a total of 1250 voxels were measured and recorded, and their importance to the study ranked acoording to predictive performance. Whether the 20 voxels measures avaialble for this project were selected random or not is not clear, and the potential impact of missing this information will also be discussed later.
+Lastly, there are 120 out-of-sample images, also transformed by Gabor wavelets, which are used as a final test set to () the quality of the eventual selected model; the original 1750 natural images before transformation, and the spatial location of the 20 available voxels. Table ? below shows a brief description of each of the dataset used for this project:
+
+Table ?
+
+## data preparation and Methodology
+Since several model selection criterions are used for this project, the data of images and voxel responses are split into three set with propotions 60 20 20. The 60% are used for training, and first 20% used to select and best model, and last 20% for () the best model's performence on unseen data. For Ridge and LASSO with different selection criterions, 10 succesive trials are ran on each combinations, this design is meant to address the issue that, according to the original study, noise that usually present in fMRI data, hence multiple bootstraps or CV's are recommanded to average out the noise. For each of the 10 runs, the following measures are recorded: significant features, average voxel-wise correlation, value of the criterion used. They are used as metrics to select the best model. Below is the brief introduction of the model selection criterions used. 
+
+As illustrated in Table ?, we have independent variables with extremely high dimensions and in comparison, only a small set of images. The potential sparsity suggests LASSO to be a potential candidate for this analysis, and it was the main method used in the original study. Hence for the first attempt of this project, linear regression models with penalizations, namely LASSO and Ridge, are experimented, and Ridge is used mainly as a comparison to LASSO in terms of their distinct penalization approach. Most of the work in this project is focused on LASSO for its ability of feature selection, therefore, many model selection criterias are used in the process of select the best shrinkage parameter lambda. Below are a brief introduction to each of the criteria used for LASSO.
+
+# AIC
+AIC, short for Akaike Information Criterion, is a model selection metric founded on informtion theory. As an estimator of out-of-sample prediction error, AIC provides a measure for the quality of different models based on the same dataset. Given AIC's formula: ???, where ???. we can see that the value increases as a function of k, the amount of estimated parameters of a given model. Hence, to avoid overfitting, one would choose the model with the least AIC value. 
+Notice that AIC only offers comparison between different models, that is, its value does not suggest the absolute quality of a model, only the relative quality to other models. This means that, if none of the experimented models performe well, AIC will bear no indication to such potential pitfall, thus should be used in conjuntion with other model validation metrics. Another weakness of AIC is that it tends to select too many parameters if the sample size is small, hence overfitting the data. AICc was introduced to address this issue. 
+
+# AICC
+With additional assumption on the model satisfied, namely the model being univarite and linear in parameters, the formula of AICc is as the following: ???. where n is sample size and k is numbers of selected parameters. We see that AICc is essentially AIC with extra penalization on the numbers of parameters, and as n to ifinity, the extra term will converge to 0.
+Even though theoretically AICc should provide better indication of relative model quality compared to AIC, it can be difficult to calculate if its model assupmtions are not met, which make the process of deriving its formula more challenging. 
+
+# BIC
+Based on likelihood function, and closely related to AIC, Bayesian Information Criterion also offers relative quality for models on the same dataset. The formula of BIC is: ???, where ???. We see that the penalty on number of parameters k is larger than AIC if sample size n is much larger than k, which is one of the limitations for BIC in practice. Another potential issues is BIC does not handle high dimensional data well, and we already see that the data used has very high dimensions. Lastly, Theories suggest that, if the "true model" that generates the data is among the collections of models, BIC is more appropriate since it tends to select the "true model". However, researches showed that, through simulations, even when the "true model" is present, AIC sometiems select much better models than BIC. Thus BIC should be used along with other selection criterion and ... 
+
+One of the major weaknesses of the previous three criterions are that their validity rely on model assumptions, and they are derived from asymptotic results. Which means that they might not be ideal on finite dataset.[2] Thus besides the three model dependent criterions, two independent ones are also experimented in this project.
+
+# Cross Validation
+One of the most commonly used model-free criterion is cross validation. Its goal is to test a model's performence on unseen data through data partition, and to provide insights on how the model will generalize to future data. Different forms of cross validations are mainly distinguished based on how the data are partitioned and if it is exhaustive, and they are in genereal easy to implement since the design and construction are all independent of the potential model. However, if the model chosen is demanding in terms of computational capacity, cross validation can be very slow for its repetitive process, which is one of its major downsides in practice.
+
+# Estimation Stability with Cross Validation (ESCV)
+ESCV, introduced by Chinghway Lim and Bin Yu in 2013, was designed to address model selection stability issues for high-dimensional sparse modeling with LASSO. In addition to cross validation, ESCV introduce a model-free measure that, for each solution path of LASSO, captures normalized sample variances of the predicted values. This measure gives insights to variability of different solution paths, and at the same time captures predictive values as well. Similar to CV, one of the issues for ESCV in practice is computational capacity, which is shown by the author that of the same () as cross validation.  
+
+```{r model estimation, echo = FALSE, message=FALSE, warning=FALSE}
+################################################################################
+# takes long time to run (about 45min), uncomment the code below
+# to load the output of this chunk from the latest run
+
+# load("R//aic_agg.RData")
+# load("R//aicc_agg.RData")
+# load("R//bic_agg.RData")
+# load("R//cv_agg.RData")
+# load("R//escv_agg.RData")
+# load("R//ridge_agg.RData")
+
+################################################################################
+
+#train all model combinations, save data
+
+# train Ridge
+ridge_agg <- tenFold(data = all_data, model = 'Ridge', 
+                     lasso = FALSE, ic = FALSE)
+save(ridge_agg, file = "R//ridge.RData")
+
+# train LASSO with CV and ESCV
+cv_agg <- tenFold(data = all_data, model = 'CV', 
+                  lasso = TRUE, ic = FALSE)
+save(cv_agg, file = "R//cv_agg.RData")
+
+escv_agg <- tenFold(data = all_data, model = 'ESCV', 
+                    lasso = TRUE, ic = FALSE)
+save(escv_agg, file = "R//escv_agg.RData")
+
+# train LASSO with AIC, AICc and BIC
+aic_agg <- tenFold(data = all_data, model = 'min_AIC', 
+                   lasso = TRUE, ic = TRUE)
+save(aic_agg, file = "R//aic_agg.RData")
+
+aicc_agg <- tenFold(data = all_data, model = 'min_AICc', 
+                    lasso = TRUE, ic = TRUE)
+save(aicc_agg, file = "R//aicc_agg.RData")
+
+bic_agg <- tenFold(data = all_data, model = 'min_BIC', 
+                   lasso = TRUE, ic = TRUE)
+save(bic_agg, file = "R//bic_agg.RData")
+
+```
+
+```{r extract info, echo = FALSE, message=FALSE, warning=FALSE}
+# functions
+corrVoxel <- function(obj) {
+  # function to extract correlations, per voxel
+  m <- matrix(nrow = 10, ncol = 20)
+  #
+  for (i in 1:10) { # per trial
+    temp <- obj[[10 + i]]
+    for (j in 1:20) { # per voxel
+      m[i, j] <- temp[[j]]
+    }
+  }
+  return(m)
+}
+
+sigVar <- function(obj) {
+  # function to extract significant features count
+  var <- c()
+  dim2 <- dim(all_data[['test_X']])[2]
+  #
+  for (i in 1:20) { # per voxel
+    voxels <- matrix(nrow = 10, ncol = dim2)
+    for (j in 1:10) { # per trial
+      voxels[j, ] <- (as.vector(obj[[j]][[i]]$beta) != 0)
+    }
+    var[i] <- sum((colSums(voxels) / 10) > 0.8)
+  }
+  return(var)
+}
+
+sigFea <- function(obj) {
+  # function to extract significant features id's
+  var <- list()
+  dim2 <- dim(all_data[['test_X']])[2]
+  #
+  for (i in 1:20) { # per voxel
+    voxels <- matrix(nrow = 10, ncol = dim2)
+    for (j in 1:10) { # per trial
+      voxels[j, ] <- (as.vector(obj[[j]][[i]]$beta) != 0)
+    }
+    var[[i]] <- (colSums(voxels))
+  }
+  return(var)
+}
+
+# save useful information
+################################################################################
+# correlation voxel mean
+escv_corr_mean <- colMeans(corrVoxel(escv_agg))
+cv_corr_mean <- colMeans(corrVoxel(cv_agg))
+aic_corr_mean <- colMeans(corrVoxel(aic_agg))
+aicc_corr_mean <- colMeans(corrVoxel(aicc_agg))
+bic_corr_mean <- colMeans(corrVoxel(bic_agg))
+ridge_corr_mean <- colMeans(corrVoxel(ridge_agg))
+
+# correlation voxel standard deviation
+escv_corr_std <- apply(corrVoxel(escv_agg), MARGIN = 2, FUN = sd)
+cv_corr_std <- apply(corrVoxel(cv_agg), MARGIN = 2, FUN = sd)
+aic_corr_std <- apply(corrVoxel(aic_agg), MARGIN = 2, FUN = sd)
+aicc_corr_std <- apply(corrVoxel(aicc_agg), MARGIN = 2, FUN = sd)
+bic_corr_std <- apply(corrVoxel(bic_agg), MARGIN = 2, FUN = sd)
+ridge_corr_std <- apply(corrVoxel(ridge_agg), MARGIN = 2, FUN = sd)
+
+# count of significant features that appeared with probability at least 0.8, per voxel, per model
+escv_count <- sigVar(escv_agg)
+cv_count <- sigVar(cv_agg)
+aic_count <- sigVar(aic_agg)
+aicc_count <- sigVar(aicc_agg)
+bic_count <- sigVar(bic_agg)
+ridge_count <- sigVar(ridge_agg)
+################################################################################
+
+```
+
+# results
+To choose the best model for each voxel, three criterions are used: average voxel-wise accuracy, voxel-wise correlation standard deviation and significant features counts. Below Table 2 shows the voxel-wise correlation. We can see that, firstly there are many NA values especially in the column of BIC, this is caused by the best model chosen under that criterion, in at least 1 of the 10 trials, only selects the intercept as independent variable, hence all predicted values are the same scalar and correlation with observed values can not be calculated. At the same time, even though for many voxels Ridge is albe to provide similar prediction correlations compare to other models, the fact that it does not offer feature selection makes it less attractive for this project. And we see that AICc offers the worst result. Thus, moving forward LASSO with AICc, BIC and Ridge is disregarded.
+
+```{r voxel-wise correlation, echo = FALSE, message=FALSE, warning=FALSE}
+# results
+################################################################################
+# correlations, all voxels
+all_corr <- data.frame('Voxel' = 1:20, 'ESCV' = escv_corr_mean, 
+                       'CV' = cv_corr_mean, 'AIC' = aic_corr_mean, 
+                       'AICc' = aicc_corr_mean, 'BIC' = bic_corr_mean, 
+                       'Ridge' = ridge_corr_mean)
+
+
+kable_styling(kable(all_corr), full_width = FALSE)
+################################################################################
+
+```
+Table 2
+
+Next, the other two metrics: voxel-wise correlations standard deviation and significant features count are illustrated in Table 3 below, for all 20 voxels:
+
+```{r other two metrics, echo = FALSE, message=FALSE, warning=FALSE}
+# results 
+################################################################################
+# all metrics, all voxels
+all_other_metrics <- data.frame('Voxel' = 1:20, 'ESCV_STD' = escv_corr_std,
+                       'ESCV_COUNT' = escv_count, 'CV_STD' = cv_corr_std,
+                       'CV_COUNT' = cv_count, 'AIC_STD' = aic_corr_std,
+                       'AIC_COUNT' = aic_count)
+
+
+kable_styling(kable(all_other_metrics), full_width = FALSE)
+################################################################################
+
+```
+Table 3
+
+## goodness of fit
+From the results above we can see that, for almost all models, the only feature chosen on voxel 20 is the intercept (which explains why there is NA in the correlations and relative fields). This suggest that either the shrinkage parameters range does not include the optimal values thus the models can not find the minimum, or there is no predictive power on voxel 20 at all based on the data at hand. To further investigate, diagnostic plots are generated for voxel 20, and the same is done on voxel 9 to compare, which is the the voxel has the highest predicted correlation. Below in Figure ? are some diagnostic plots of the two models: 
+```{r goodness of fit, echo = FALSE, message=FALSE, warning=FALSE}
+# diagnostic and residuals plot, on voxel 9 and 11
+
+# for CV path plot
+cv_9 <- cv.glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 9], 
+                    family = 'gaussian', alpha = 1, nfolds = 5, parallel = TRUE)
+cv_11 <- cv.glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 11], 
+                    family = 'gaussian', alpha = 1, nfolds = 5, parallel = TRUE)
+cv_20 <- cv.glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 20], 
+                    family = 'gaussian', alpha = 1, nfolds = 5, parallel = TRUE)
+
+# ESCV on voxel 9 and 11
+escv_lambda <- glmModelSelection(data = all_data, voxel = voxel, lasso = TRUE, ic = FALSE)
+
+escv_9 <- glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 9], 
+                          alpha = 1, family = 'gaussian', 
+                          lambda = escv_lambda[['ESCV_Lambda']][[9]])
+escv_11 <- glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 11], 
+                          alpha = 1, type.measure = 'mse', family = 'gaussian', 
+                          lambda = escv_lambda[['ESCV_Lambda']][[11]])
+ 
+# AIC on voxel 9 and 11
+aic_lambda <- glmModelSelection(data = all_data, voxel = voxel, lasso = TRUE, ic = TRUE)
+
+aic_9 <- glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 9], 
+                    family = 'gaussian', alpha = 1, 
+                    lambda = aic_lambda[['min_AIC_Lambda']][[9]])
+
+aic_11 <- glmnet(x = all_data[['train_X']], y = all_data[['train_y']][, 9], 
+                    family = 'gaussian', alpha = 1, 
+                    lambda = aic_lambda[['min_AIC_Lambda']][[9]])
+
+# residual calculation
+escv_9_pred <- predict(object = escv_9, newx = all_data[['train_X']])
+escv_11_pred <- predict(object = escv_11, newx = all_data[['train_X']])
+
+escv_9_resid <- escv_9_pred - all_data[['train_y']][, 9]
+escv_11_resid <- escv_11_pred - all_data[['train_y']][, 11]
+
+aic_9_pred <- predict(object = aic_9, newx = all_data[['train_X']])
+aic_11_pred <- predict(object = aic_11, newx = all_data[['train_X']])
+
+aic_9_resid <- aic_9_pred - all_data[['train_y']][, 9]
+aic_11_resid <- aic_11_pred - all_data[['train_y']][, 11]
+
+df_9_escv <- data.frame(escv_9_pred, escv_9_resid)
+df_11_escv <- data.frame(escv_11_pred, escv_11_resid)
+
+df_9_aic <- data.frame(aic_9_pred, aic_9_resid)
+df_11_aic <- data.frame(aic_11_pred, aic_11_resid)
+
+# residuals plots of the best and worst predicted voxels
+ggplot(df_9_escv, aes(x=s0, y=s0.1)) +
+  geom_point(size=1, shape=23) + 
+  geom_smooth(method=lm) + labs(title = "Residual plot for voxel 9 (ESCV)", 
+                                x = "Residuals", y = "Predicted")
+
+ggplot(df_11_escv, aes(x=s0, y=s0.1)) +
+  geom_point(size=1, shape=23) + 
+  geom_smooth(method=lm) + labs(title = "Residual plot for voxel 11 (ESCV)", 
+                                x = "Residuals", y = "Predicted")
+
+ggplot(df_9_aic, aes(x=s0, y=s0.1)) +
+  geom_point(size=1, shape=23) + 
+  geom_smooth(method=lm) + labs(title = "Residual plot for voxel 9 (AIC)", 
+                                x = "Residuals", y = "Predicted")
+
+ggplot(df_11_aic, aes(x=s0, y=s0.1)) +
+  geom_point(size=1, shape=23) + 
+  geom_smooth(method=lm) + labs(title = "Residual plot for voxel 11 (AIC)", 
+                                x = "Residuals", y = "Predicted")
+
+# CV plots for voxel 9 and 20
+plot(cv_20)
+
+plot(cv_9)
+
+```
+
+From the above plots we can see that as the shrinkage parameter increases, the loss of voxel 20 does not increases, unlike the loss from voxel 9. Furthermore, its loss keeps decreasing till the model only selects the intercept, and it is not reasonable to speculate that the dependent variables hold no predictive powers at all on voxel 20. On the contrarary, we see the loss of voxel 9 decreases, then increases later as lambda getting larger, which suggests a minimum value found through lambda's path.
+This helps explaining why almost all models have NA in voxel 20, hence it should be excluded from considerations for choosing the best model later on.
+Next, goodness of fit of the model is explored and below in Figure ? is the residual plot for voxel 9 and 11 respectively: the best and worst performing voxel with respect to correlation:
+
+Figure ?
+
+We see that for both voxel the residual plots suggest a pretty good fit on LASSO, and it is still inconclusive whether one is better than the other at this stage. To further investigate the two models, let us take a look at the features selected by the two:
+
+
+```{r model diagnostics, echo = FALSE, message=FALSE, warning=FALSE}
+# count features selected for each voxel
+escv_var <- sigFea(escv_agg)
+aic_var <- sigFea(aic_agg)
+
+inte <- list()
+aic_sig <- c()
+escv_sig <- c()
+for (i in 1:20) {
+  inte[[i]] <- intersect(which(escv_var[[i]] == TRUE), which(aic_var[[i]] == TRUE))
+  aic_sig[i] <- length(which(aic_var[[i]] == TRUE))
+  escv_sig[i] <- length(which(escv_var[[i]] == TRUE))
+}
+
+counts <- t(data.frame('voxel' = 1:20, aic_sig, escv_sig))
+kable_styling(kable(counts), full_width = FALSE)
+
+
+```
+
+Table 4 above show the total variables used by ESCV and AIC for all voxels. We see that in general ESCV selects less variables compare to AIC while still maintains very similar prediciton correlations. Since AIC requires additional model assumptions, the model-free criterion ESCV is faviroble for this application, thus, the final model selected is LASSO with ESCV.
+
+## discussion and conclusion
+Below Figure 3 shows the correlation on the test set:
+```{r best model on test set, echo = FALSE, message=FALSE, warning=FALSE}
+# final model for prediction on the test set
+final_model_params <- glmModelConstruction(data = all_data, 
+                          lambdas = escv_lambda[['ESCV_Lambda']],
+                          lasso = TRUE, test = TRUE)
+final_corr <- c()
+for (i in 1:20) {
+  final_corr[i] <- final_model_params[[2]][[i]]
+}
+final_corr <- t(data.frame('voxel' = sapply(1:20, FUN = toString), final_corr))
+kable_styling(kable(final_corr), full_width = FALSE, font_size = 13)
+
+```
+Figure 3
+
+Comparing with the stage of model selection, most voxels see a moderate improvement on correlation when the training data is increased in size. At the same time, now only 2 models, voxel 16 and 20, select only the intercept, which is better than 4 models in previous stage.  
+
+
+```{r predict the final test set, echo = FALSE, message=FALSE, warning=FALSE}
+# model training on the entire dataset
+whole_model_params <- escv.glmnet(x = fit_feat, y = resp_dat[, 1], 
+                                  nfolds = 10, parallel = TRUE, alpha = 1,
+                                  family = 'gaussian')
+
+whole_model <- glmnet(x = fit_feat, y = resp_dat[, 1], 
+                      family = 'gaussian', alpha = 1, 
+                      lambda = whole_model_params$lambda.escv)
+
+# prediction on the test set
+val_feat_pred <- predict(whole_model, val_feat)
+# save test results into a .txt file
+write.table(val_feat_pred, file = "output//predv1_chaozhang.txt", 
+            append = FALSE, sep = " ", dec = ".",
+            row.names = FALSE, col.names = FALSE)
+
+```
