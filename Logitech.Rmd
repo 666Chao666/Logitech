@@ -5,9 +5,8 @@ date: "08/06/2020"
 output: pdf_document
 ---
 
-## introduction, 
-Aiming to take on the challenging goal in neuroscience that to read and decode mental content from brain activity, Gallant et. al. at UC Berkeley developed a quantitative receptive-field model to characterize the relationship between visual stimuli and fMRI activities in early visual areas.[1] Compared to previous studies, their models were directly estimated from responses evoked by natural images, and they were able to describe the tuning of individual voxels for space, orientation and spatial frequencies. [1] Their study contained two different stages: firstly the construction of the receptive-field models using fMRI data of study participants viewing 1,750 natural images, and in second stage they showed that identifying, from a large set of natural images, which specific one was seen by an observer could be achieved with high accuracy. 
-This report documents the process of replicating the first stage of Identifying natural images from human brain activity, which is, constructing a simpler () model based on the measurements of 20 voxels' responses from the original 1750 natural images used in the original study. Firstly, basic data description, then model description, then training results comparison the model selection, then diagnostic analysis with some discussion of advantages and disadvantages of each, and lastly the prediction on the first voxel of 120 out-of-sample natural images.
+## introduction
+
 
 ```{r setup and data prep, echo = FALSE, message=FALSE, warning=FALSE}
 # load packages
@@ -41,24 +40,54 @@ source("R/glmModelConstruction.R")
 source("R/tenFold.R")
 
 # load data
-load("data/fMRIdata.RData")
+df <- read.csv('use_case.csv')
+```
 
-# split data for training, validation and test by (76%, 20% and 20%)
-all_data <- dataSplit(fit_feat, resp_dat)
+## basic EDA and data prep
+```{r EDA, echo = FALSE, message=FALSE, warning=FALSE}
+# some basic data info
+glimpse(df)
 
-# useful var's and settings
-voxel <- 1:20
-registerDoParallel(7)
+# manual inspection indicates multiple Null's, yet ... 
+sum(is.na(df))
+
+# check data type
+sapply(df, class)
+
+# filter with exact match of Null
+df$Category3 == 'NULL'
+
+# locate rows with NULL character string
+nulls <- df %>%
+  filter((df$Category1 == 'NULL' | df$Category2 == 'NULL' |
+          df$Category3 == 'NULL' | is.na(.)))
+# While the NULL character strings don't necessarily have a direct impact on time series analysis, missing values might indicate potential data quality issues and due to the lack of extra information on the dataset, removing them is a ...
+
+# remove all rows with Null's
+df <- df %>%
+  filter(!(df$Category1 == 'NULL' | df$Category2 == 'NULL' |
+          df$Category3 == 'NULL' | is.na(.)))
+
+df[, !(colnames(df) %in% c('Category1', 'Category2', 'Category3'))]
+
+# remove rows with too much 0's
+
+# find a way to identify 'most important products'
+
+# maybe lowest and highest growth, biggest jumps, obvious trend? etc.
+
+
+# maybe largest sell, lowest sell, most growth etc.
+# some visualization on the three
+
+
+
+
 
 
 ```
 
-## basic data description 
-The 1750 natural images are in grey-scale and of the size 128 by 128. Similar to the original study, the iamges are already transformed with Gabor wavelets hence with size reduced to 10921 (instead of original 128*128=16384) per image. However, the original Gabor transformation matrix is not available in entirety for this project: only the real part of the 10921 Gabor wavelets are available. Hence there are some limitations on analysis which will be discussed later. 
-Along with the iamges, there are in total 20 voxels' responses measures per image which are used as the dependent variables in model estimation. In the original study, a total of 1250 voxels were measured and recorded, and their importance to the study ranked acoording to predictive performance. Whether the 20 voxels measures avaialble for this project were selected random or not is not clear, and the potential impact of missing this information will also be discussed later.
-Lastly, there are 120 out-of-sample images, also transformed by Gabor wavelets, which are used as a final test set to () the quality of the eventual selected model; the original 1750 natural images before transformation, and the spatial location of the 20 available voxels. Table ? below shows a brief description of each of the dataset used for this project:
 
-Table ?
 
 ## data preparation and Methodology
 Since several model selection criterions are used for this project, the data of images and voxel responses are split into three set with propotions 60 20 20. The 60% are used for training, and first 20% used to select and best model, and last 20% for () the best model's performence on unseen data. For Ridge and LASSO with different selection criterions, 10 succesive trials are ran on each combinations, this design is meant to address the issue that, according to the original study, noise that usually present in fMRI data, hence multiple bootstraps or CV's are recommanded to average out the noise. For each of the 10 runs, the following measures are recorded: significant features, average voxel-wise correlation, value of the criterion used. They are used as metrics to select the best model. Below is the brief introduction of the model selection criterions used. 
