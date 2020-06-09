@@ -5,21 +5,21 @@ date: "08/06/2020"
 output: pdf_document
 ---
 
-## introduction
-
-
 ```{r setup and data prep, echo = FALSE, message=FALSE, warning=FALSE}
 # load packages
 library(tidyverse)
+library(lubridate)
+library(ggplot2)
+
 library(caret)
 library(glmnet)
 library(HDCI)
-library(doParallel)
-library(foreach)
-library(ggplot2)
+
+
+
 library(corrplot)
 library(knitr)
-library(kableExtra)
+
 
 # set default knitr chunks
 knitr::opts_chunk$set(
@@ -34,43 +34,112 @@ knitr::opts_chunk$set(
 )
 
 # source functions
-source("R/dataSplit.R")
-source("R/glmModelSelection.R")
-source("R/glmModelConstruction.R")
-source("R/tenFold.R")
+source("categoryConstruction.R")
+source("dataFrameTransformation.R")
 
 # load data
 df <- read.csv('use_case.csv')
+
 ```
 
-## basic EDA and data prep
+## preprocessing and data prep
 ```{r EDA, echo = FALSE, message=FALSE, warning=FALSE}
 # some basic data info
 glimpse(df)
 
-# manual inspection indicates multiple Null's, yet ... 
+############################# missing values ###################################
+# any missing values
 sum(is.na(df))
 
-# check data type
+# Yet manual inspection indicates multiple Null's
+# try checking data types
 sapply(df, class)
 
-# filter with exact match of Null
-df$Category3 == 'NULL'
-
-# locate rows with NULL character string
+# locate rows with missing values with exact match of 'NULL' character string
 nulls <- df %>%
   filter((df$Category1 == 'NULL' | df$Category2 == 'NULL' |
           df$Category3 == 'NULL' | is.na(.)))
-# While the NULL character strings don't necessarily have a direct impact on time series analysis, missing values might indicate potential data quality issues and due to the lack of extra information on the dataset, removing them is a ...
+
+############################# some discussion ##################################
+# While the 'NULL' character strings don't necessarily have a direct impact on 
+# time series analysis, missing values might indicate potential data quality 
+# issues and due to the lack of extra information on the data-set removing 
+# them is a safer option
+############################# some discussion ##################################
 
 # remove all rows with Null's
 df <- df %>%
   filter(!(df$Category1 == 'NULL' | df$Category2 == 'NULL' |
           df$Category3 == 'NULL' | is.na(.)))
+################################################################################
 
-df[, !(colnames(df) %in% c('Category1', 'Category2', 'Category3'))]
+############################# zero entries #####################################
+# take a look at number of zero entries
+rowSums(df==0)
 
-# remove rows with too much 0's
+# remove rows with too many 0's, similar reasoning as removing Null's
+df <- df[rowSums(df == 0) <= 32, ]
+
+# remove leading and trailing 0's, 
+sales <- df[, -c(1:3)]
+sales <- sales[!colSums(sales) == 0]
+
+############################# some discussion ##################################
+# examine the last column (Sep.16) we can see that the sales numbers are 
+# considerably lower than those of previous months (for the rows that have 
+# non-zero entries), one hypothesis is that this file is recorded before the 
+# end of September 2016 hence the data is incomplete and don't represent the 
+# accurate sales in that month, remove??????
+############################# some discussion ##################################
+
+# remove Sep.16
+sales <- select(sales, -'Sep.16')
+################################################################################
+
+
+
+#
+categories <- df[, c(1:3)]
+categories <- categoryConstruction(categories)
+categories
+# build final data frame
+final_df <- dataFrameTransformation(sales, categories)
+
+
+fam_A <- final_df %>%
+  select(starts_with('A'), TIME)
+
+
+fam_A <- gather(fam_A, "Product", "Sales", -TIME)
+
+p <- ggplot(fam_A, aes(x=TIME, y=Sales)) +
+  geom_line(aes(color=Product)) + 
+  xlab("")
+p
+
+fam_B <- final_df %>%
+  select(starts_with('B'), TIME)
+fam_B <- gather(fam_B, "Product", "Sales", -TIME)
+
+ggplot(fam_B, aes(x=TIME, y=Sales)) +
+  geom_line(aes(color=Product)) + 
+  xlab("")
+
+
+fam_C <- final_df %>%
+  select(starts_with('C'), TIME)
+fam_C <- gather(fam_C, "Product", "Sales", -TIME)
+
+ggplot(fam_B, aes(x=as.Date(TIME), y=Sales)) +
+  geom_line(aes(color=Product)) + 
+  xlab("") + 
+  theme_minimal() + 
+  scale_x_date(date_breaks = "4 month", date_labels = "%b-%Y") + 
+  theme(axis.text.x=element_text(angle = 60, vjust = 0.5))
+
+
+typeof(fam_C['TIME'][1
+
 
 # find a way to identify 'most important products'
 
@@ -81,7 +150,7 @@ df[, !(colnames(df) %in% c('Category1', 'Category2', 'Category3'))]
 # some visualization on the three
 
 
-
+df[, !(colnames(df) %in% c('Category1', 'Category2', 'Category3'))]
 
 
 
@@ -92,26 +161,7 @@ df[, !(colnames(df) %in% c('Category1', 'Category2', 'Category3'))]
 ## data preparation and Methodology
 Since several model selection criterions are used for this project, the data of images and voxel responses are split into three set with propotions 60 20 20. The 60% are used for training, and first 20% used to select and best model, and last 20% for () the best model's performence on unseen data. For Ridge and LASSO with different selection criterions, 10 succesive trials are ran on each combinations, this design is meant to address the issue that, according to the original study, noise that usually present in fMRI data, hence multiple bootstraps or CV's are recommanded to average out the noise. For each of the 10 runs, the following measures are recorded: significant features, average voxel-wise correlation, value of the criterion used. They are used as metrics to select the best model. Below is the brief introduction of the model selection criterions used. 
 
-As illustrated in Table ?, we have independent variables with extremely high dimensions and in comparison, only a small set of images. The potential sparsity suggests LASSO to be a potential candidate for this analysis, and it was the main method used in the original study. Hence for the first attempt of this project, linear regression models with penalizations, namely LASSO and Ridge, are experimented, and Ridge is used mainly as a comparison to LASSO in terms of their distinct penalization approach. Most of the work in this project is focused on LASSO for its ability of feature selection, therefore, many model selection criterias are used in the process of select the best shrinkage parameter lambda. Below are a brief introduction to each of the criteria used for LASSO.
-
-# AIC
-AIC, short for Akaike Information Criterion, is a model selection metric founded on informtion theory. As an estimator of out-of-sample prediction error, AIC provides a measure for the quality of different models based on the same dataset. Given AIC's formula: ???, where ???. we can see that the value increases as a function of k, the amount of estimated parameters of a given model. Hence, to avoid overfitting, one would choose the model with the least AIC value. 
-Notice that AIC only offers comparison between different models, that is, its value does not suggest the absolute quality of a model, only the relative quality to other models. This means that, if none of the experimented models performe well, AIC will bear no indication to such potential pitfall, thus should be used in conjuntion with other model validation metrics. Another weakness of AIC is that it tends to select too many parameters if the sample size is small, hence overfitting the data. AICc was introduced to address this issue. 
-
-# AICC
-With additional assumption on the model satisfied, namely the model being univarite and linear in parameters, the formula of AICc is as the following: ???. where n is sample size and k is numbers of selected parameters. We see that AICc is essentially AIC with extra penalization on the numbers of parameters, and as n to ifinity, the extra term will converge to 0.
-Even though theoretically AICc should provide better indication of relative model quality compared to AIC, it can be difficult to calculate if its model assupmtions are not met, which make the process of deriving its formula more challenging. 
-
-# BIC
-Based on likelihood function, and closely related to AIC, Bayesian Information Criterion also offers relative quality for models on the same dataset. The formula of BIC is: ???, where ???. We see that the penalty on number of parameters k is larger than AIC if sample size n is much larger than k, which is one of the limitations for BIC in practice. Another potential issues is BIC does not handle high dimensional data well, and we already see that the data used has very high dimensions. Lastly, Theories suggest that, if the "true model" that generates the data is among the collections of models, BIC is more appropriate since it tends to select the "true model". However, researches showed that, through simulations, even when the "true model" is present, AIC sometiems select much better models than BIC. Thus BIC should be used along with other selection criterion and ... 
-
-One of the major weaknesses of the previous three criterions are that their validity rely on model assumptions, and they are derived from asymptotic results. Which means that they might not be ideal on finite dataset.[2] Thus besides the three model dependent criterions, two independent ones are also experimented in this project.
-
-# Cross Validation
-One of the most commonly used model-free criterion is cross validation. Its goal is to test a model's performence on unseen data through data partition, and to provide insights on how the model will generalize to future data. Different forms of cross validations are mainly distinguished based on how the data are partitioned and if it is exhaustive, and they are in genereal easy to implement since the design and construction are all independent of the potential model. However, if the model chosen is demanding in terms of computational capacity, cross validation can be very slow for its repetitive process, which is one of its major downsides in practice.
-
-# Estimation Stability with Cross Validation (ESCV)
-ESCV, introduced by Chinghway Lim and Bin Yu in 2013, was designed to address model selection stability issues for high-dimensional sparse modeling with LASSO. In addition to cross validation, ESCV introduce a model-free measure that, for each solution path of LASSO, captures normalized sample variances of the predicted values. This measure gives insights to variability of different solution paths, and at the same time captures predictive values as well. Similar to CV, one of the issues for ESCV in practice is computational capacity, which is shown by the author that of the same () as cross validation.  
+As illustrated in Table ?, we have independent variables with extremely high dimensions and in comparison, only a small set of images. The potential sparsity suggests LASSO to be a potential candidate for this analysis, and it was the main method used in the original study. Hence for the first
 
 ```{r model estimation, echo = FALSE, message=FALSE, warning=FALSE}
 ################################################################################
