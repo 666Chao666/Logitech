@@ -2,7 +2,10 @@
 title: "Logitech Interview"
 author: "Chao Zhang"
 date: "08/06/2020"
-output: pdf_document
+output:
+  word_document: default
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup and data prep, echo = FALSE, message=FALSE, warning=FALSE}
@@ -10,16 +13,8 @@ output: pdf_document
 library(tidyverse)
 library(lubridate)
 library(ggplot2)
-
-library(caret)
-library(glmnet)
-library(HDCI)
-
-
-
-library(corrplot)
+library(forecast)
 library(knitr)
-
 
 # set default knitr chunks
 knitr::opts_chunk$set(
@@ -42,9 +37,9 @@ df <- read.csv('use_case.csv')
 
 ```
 
-
-
 ## preprocessing and data prep
+This section focuses on preprocessing and cleaning the data. Some 
+justifications on the decisions made are provided in the comments.
 ```{r EDA, echo = FALSE, message=FALSE, warning=FALSE}
 # some basic data info
 glimpse(df)
@@ -101,43 +96,44 @@ sales <- select(sales, -'Sep.16')
 # transforming data into a more plot friendly format
 categories <- df[, c(1:3)]
 categories <- categoryConstruction(categories)
-categories
+
 # build final data frame
 final_df <- dataFrameTransformation(sales, categories)
 
 # extract product family starting with A from category 1
-fam_A <- final_df %>%
+A <- final_df %>%
   select(starts_with('A'), TIME)
-fam_A <- gather(fam_A, "Product", "Sales", -TIME)
+fam_A <- gather(A, "Product", "Sales", -TIME)
 
 # extract product family starting with B from category 1
-fam_B <- final_df %>%
+B <- final_df %>%
   select(starts_with('B'), TIME)
-fam_B <- gather(fam_B, "Product", "Sales", -TIME)
+fam_B <- gather(B, "Product", "Sales", -TIME)
 
 # extract product family starting with C from category 1
-fam_C <- final_df %>%
+C <- final_df %>%
   select(starts_with('C'), TIME)
-fam_C <- gather(fam_C, "Product", "Sales", -TIME)
-
-
-# find a way to identify 'most important products'
-
-# maybe lowest and highest growth, biggest jumps, obvious trend? etc.
-
-
-# maybe largest sell, lowest sell, most growth etc.
-# some visualization on the three
-
-
-
+fam_C <- gather(C, "Product", "Sales", -TIME)
 
 ```
 
-## some EDA plots
-we can see that seasonal affects, holiday shopping seasons, while product 
-family B doesn't exhibite the same cyclicle, maybe due to regional or nature 
-of the product it has a more consistent sales cycle etc.
+## EDA
+This section shows some basic line charts for the data reorganized through 
+Category 1, i.e. data is split into three chunks with Category 1 tags used as 
+identifiers for the grouping process, so new product ID is the result of its
+category 1 + category 2 + category 3 + numeric value if duplicates exist.
+
+We can see below, first of all, each family of products have a distinct sales 
+pattern and respectively products share a very similar behavior as their family
+counterparts. Secondly, There is a clear annual seasonal effects in product 
+family A** and C**, with both families showing a big sales surge around the end 
+of each year presumably as the result of holiday shopping seasons. On the other 
+hand, product family B** doesn't exhibit the same surge, instead it has a clear 
+quarterly seasonal cycle throughout, with a slight hint of decreasing trend on
+the two most popular products. One can postulate that the behavior of this 
+product family is the result of the nature of the product, or regional effects 
+such that the product is mainly circulating in markets in which holiday shopping
+traditions are different.
 ```{r product family A** plot, echo = FALSE, message=FALSE, warning=FALSE}
 
 ggplot(fam_A, aes(x=as.Date(TIME), y=Sales)) +
@@ -155,7 +151,7 @@ ggplot(fam_B, aes(x=as.Date(TIME), y=Sales)) +
   geom_line(aes(color=Product)) + 
   xlab("") + 
   theme_minimal() + 
-  scale_x_date(date_breaks = "4 month", date_labels = "%b-%Y") + 
+  scale_x_date(date_breaks = "2 month", date_labels = "%b-%Y") + 
   theme(axis.text.x=element_text(angle = 60, vjust = 0.5))
 
 ```
@@ -171,15 +167,63 @@ ggplot(fam_C, aes(x=as.Date(TIME), y=Sales)) +
 
 ```
 
-## data preparation and Methodology
-Since product family A** and C** both exhibites similar long term behaviors, 
-for the interest of time and lack of info, only use one. Here choosing the 
-one with highest overall sales from family A**. On the other hand, product 
-family B** has totally different behaviors with short term sensonality and 
-slightly decreasing trend for the one with highest sales, hence chosen to be 
-the interest of analysis.
 
-```{r model estimation, echo = FALSE, message=FALSE, warning=FALSE}
+## modelling the forecasting
+Since product family A** and C** exhibit similar short/long term behaviors,
+one product is chosen from family A** for further analysis. Family B**'s 
+distinct sales pattern is of interest hence a single product is taken from this 
+family as well. The two products are chosen as the largest overall sales from 
+their respective family categories.
+```{r AAM, echo = FALSE, message=FALSE, warning=FALSE}
+# largest sales counts from product family A**
+A_name <- 
+  colnames(A[-dim(A)[2]])[colSums(A[-dim(A)[2]]) == max(colSums(A[-dim(A)[2]]))]
+prod_1 <- A[c(A_name, 'TIME')]
+
+# convert to R time series
+AAM <- ts(prod_1$AAM, frequency = 12, start = c(2013, 1))
+
+# auto-correlation
+Acf(AAM)
+Pacf(AAM)
+
+
+# clear correlations exist, hence seasonal ARIMA is a better choice
+AAM_auto <- auto.arima(AAM)
+checkresiduals(AAM_auto)
+
+AAM_auto %>%
+  forecast(h=12) %>%
+  autoplot()
+
+```
+
+
+
+```{r BCW, echo = FALSE, message=FALSE, warning=FALSE}
+# largest sales counts from product family B**
+B_name <- 
+  colnames(B[-dim(B)[2]])[colSums(B[-dim(B)[2]]) == max(colSums(B[-dim(B)[2]]))]
+prod_2 <- B[c(B_name, 'TIME')]
+
+# convert to R time series
+BCW <- ts(prod_2$BCW, frequency = 12, start = c(2013, 1))
+# LOG transformation
+BCW <- log(BCW)
+
+# auto-correlation
+Acf(BCW)
+Pacf(BCW)
+
+# clear correlations exist, hence seasonal ARIMA is a better choice
+BCW_auto <- auto.arima(BCW)
+checkresiduals(BCW_auto)
+
+BCW_auto %>%
+  forecast(h=12) %>%
+  autoplot()
+
+
 
 # autocorrelation on the two product
 
@@ -195,7 +239,7 @@ the interest of analysis.
 
 # first ac and partial ac, if yes, more complicated model, MA otherwise
 
-# 
+#
 
 
 
@@ -203,127 +247,16 @@ the interest of analysis.
 
 
 
-
-
-
-################################################################################
-# takes long time to run (about 45min), uncomment the code below
-# to load the output of this chunk from the latest run
-
-# load("R//aic_agg.RData")
-# load("R//aicc_agg.RData")
-# load("R//bic_agg.RData")
-# load("R//cv_agg.RData")
-# load("R//escv_agg.RData")
-# load("R//ridge_agg.RData")
-
-################################################################################
-
-#train all model combinations, save data
-
-# train Ridge
-ridge_agg <- tenFold(data = all_data, model = 'Ridge', 
-                     lasso = FALSE, ic = FALSE)
-save(ridge_agg, file = "R//ridge.RData")
-
-# train LASSO with CV and ESCV
-cv_agg <- tenFold(data = all_data, model = 'CV', 
-                  lasso = TRUE, ic = FALSE)
-save(cv_agg, file = "R//cv_agg.RData")
-
-escv_agg <- tenFold(data = all_data, model = 'ESCV', 
-                    lasso = TRUE, ic = FALSE)
-save(escv_agg, file = "R//escv_agg.RData")
-
-# train LASSO with AIC, AICc and BIC
-aic_agg <- tenFold(data = all_data, model = 'min_AIC', 
-                   lasso = TRUE, ic = TRUE)
-save(aic_agg, file = "R//aic_agg.RData")
-
-aicc_agg <- tenFold(data = all_data, model = 'min_AICc', 
-                    lasso = TRUE, ic = TRUE)
-save(aicc_agg, file = "R//aicc_agg.RData")
-
-bic_agg <- tenFold(data = all_data, model = 'min_BIC', 
-                   lasso = TRUE, ic = TRUE)
-save(bic_agg, file = "R//bic_agg.RData")
 
 ```
 
-```{r extract info, echo = FALSE, message=FALSE, warning=FALSE}
-# functions
-corrVoxel <- function(obj) {
-  # function to extract correlations, per voxel
-  m <- matrix(nrow = 10, ncol = 20)
-  #
-  for (i in 1:10) { # per trial
-    temp <- obj[[10 + i]]
-    for (j in 1:20) { # per voxel
-      m[i, j] <- temp[[j]]
-    }
-  }
-  return(m)
-}
 
-sigVar <- function(obj) {
-  # function to extract significant features count
-  var <- c()
-  dim2 <- dim(all_data[['test_X']])[2]
-  #
-  for (i in 1:20) { # per voxel
-    voxels <- matrix(nrow = 10, ncol = dim2)
-    for (j in 1:10) { # per trial
-      voxels[j, ] <- (as.vector(obj[[j]][[i]]$beta) != 0)
-    }
-    var[i] <- sum((colSums(voxels) / 10) > 0.8)
-  }
-  return(var)
-}
+# forecasting to csv
 
-sigFea <- function(obj) {
-  # function to extract significant features id's
-  var <- list()
-  dim2 <- dim(all_data[['test_X']])[2]
-  #
-  for (i in 1:20) { # per voxel
-    voxels <- matrix(nrow = 10, ncol = dim2)
-    for (j in 1:10) { # per trial
-      voxels[j, ] <- (as.vector(obj[[j]][[i]]$beta) != 0)
-    }
-    var[[i]] <- (colSums(voxels))
-  }
-  return(var)
-}
+## discussions
+some observations, products 
 
-# save useful information
-################################################################################
-# correlation voxel mean
-escv_corr_mean <- colMeans(corrVoxel(escv_agg))
-cv_corr_mean <- colMeans(corrVoxel(cv_agg))
-aic_corr_mean <- colMeans(corrVoxel(aic_agg))
-aicc_corr_mean <- colMeans(corrVoxel(aicc_agg))
-bic_corr_mean <- colMeans(corrVoxel(bic_agg))
-ridge_corr_mean <- colMeans(corrVoxel(ridge_agg))
+some critique on menthods, choices made, data quality
 
-# correlation voxel standard deviation
-escv_corr_std <- apply(corrVoxel(escv_agg), MARGIN = 2, FUN = sd)
-cv_corr_std <- apply(corrVoxel(cv_agg), MARGIN = 2, FUN = sd)
-aic_corr_std <- apply(corrVoxel(aic_agg), MARGIN = 2, FUN = sd)
-aicc_corr_std <- apply(corrVoxel(aicc_agg), MARGIN = 2, FUN = sd)
-bic_corr_std <- apply(corrVoxel(bic_agg), MARGIN = 2, FUN = sd)
-ridge_corr_std <- apply(corrVoxel(ridge_agg), MARGIN = 2, FUN = sd)
-
-# count of significant features that appeared with probability at least 0.8, per voxel, per model
-escv_count <- sigVar(escv_agg)
-cv_count <- sigVar(cv_agg)
-aic_count <- sigVar(aic_agg)
-aicc_count <- sigVar(aicc_agg)
-bic_count <- sigVar(bic_agg)
-ridge_count <- sigVar(ridge_agg)
-################################################################################
-
-```
-
-# results
-To choose the best model for each voxel, three criterions are used: average voxel-wise accuracy, voxel-wise correlation standard deviation and significant features counts. Below Table 2 shows the voxel-wise correlation. We can see that, firstly there are many NA values especially in the column of BIC, this is caused by the best model chosen under that criterion, in at least 1 of the 10 trials, only selects the intercept as independent variable, hence all predicted values are the same scalar and correlation with observed values can not be calculated. At the same time, even though for many voxels Ridge is albe to provide similar prediction correlations compare to other models, the fact that it does not offer feature selection makes it less attractive for this project. And we see that AICc offers the worst result. Thus, moving forward LASSO with AICc, BIC and Ridge is disregarded.
+what are possible next steps, modelling cleaning etc.
 

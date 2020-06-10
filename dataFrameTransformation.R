@@ -1,7 +1,6 @@
 #
 library(lubridate)
 
-
 dataFrameTransformation <- function(df, categories) {
   # function to transform data frame
   #
