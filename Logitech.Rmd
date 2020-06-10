@@ -98,24 +98,24 @@ sales <- sales[!colSums(sales) == 0]
 sales <- select(sales, -'Sep.16')
 ################################################################################
 
-#
+# transforming data into a more plot friendly format
 categories <- df[, c(1:3)]
 categories <- categoryConstruction(categories)
 categories
 # build final data frame
 final_df <- dataFrameTransformation(sales, categories)
 
-# 
+# extract product family starting with A from category 1
 fam_A <- final_df %>%
   select(starts_with('A'), TIME)
 fam_A <- gather(fam_A, "Product", "Sales", -TIME)
 
-#
+# extract product family starting with B from category 1
 fam_B <- final_df %>%
   select(starts_with('B'), TIME)
 fam_B <- gather(fam_B, "Product", "Sales", -TIME)
 
-#
+# extract product family starting with C from category 1
 fam_C <- final_df %>%
   select(starts_with('C'), TIME)
 fam_C <- gather(fam_C, "Product", "Sales", -TIME)
@@ -172,9 +172,40 @@ ggplot(fam_C, aes(x=as.Date(TIME), y=Sales)) +
 ```
 
 ## data preparation and Methodology
-
+Since product family A** and C** both exhibites similar long term behaviors, 
+for the interest of time and lack of info, only use one. Here choosing the 
+one with highest overall sales from family A**. On the other hand, product 
+family B** has totally different behaviors with short term sensonality and 
+slightly decreasing trend for the one with highest sales, hence chosen to be 
+the interest of analysis.
 
 ```{r model estimation, echo = FALSE, message=FALSE, warning=FALSE}
+
+# autocorrelation on the two product
+
+
+# partial-autocorrelation to check linear dependancy
+
+# for family A** and C**, the random and seasonal fluctuations are relatively 
+# constant through time, with a hit of increasing, suggesting appropriate 
+# additive model
+
+# for family B** we have relatively constant seasonal fluctuations and with a 
+# hint of decreasing trend, also suggesting a additive model
+
+# first ac and partial ac, if yes, more complicated model, MA otherwise
+
+# 
+
+
+
+
+
+
+
+
+
+
 ################################################################################
 # takes long time to run (about 45min), uncomment the code below
 # to load the output of this chunk from the latest run
