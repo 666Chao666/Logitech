@@ -123,7 +123,7 @@ Category 1, i.e. data is split into three chunks with Category 1 tags used as
 identifiers for the grouping process, so new product ID is the result of its
 category 1 + category 2 + category 3 + numeric value if duplicates exist.
 
-We can see below, first of all, each family of products have a distinct sales 
+We can see below, first of all, each family of products has a distinct sales 
 pattern and respectively products share a very similar behavior as their family
 counterparts. Secondly, There is a clear annual seasonal effects in product 
 family A** and C**, with both families showing a big sales surge around the end 
@@ -132,7 +132,7 @@ hand, product family B** doesn't exhibit the same surge, instead it has a clear
 quarterly seasonal cycle throughout, with a slight hint of decreasing trend on
 the two most popular products. One can postulate that the behavior of this 
 product family is the result of the nature of the product, or regional effects 
-such that the product is mainly circulating in markets in which holiday shopping
+such as the product is mainly circulating in markets in which holiday shopping
 traditions are different.
 ```{r product family A** plot, echo = FALSE, message=FALSE, warning=FALSE}
 
