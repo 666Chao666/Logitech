@@ -63,7 +63,7 @@ nulls <- df %>%
 # While the 'NULL' character strings don't necessarily have a direct impact on 
 # time series analysis, missing values might indicate potential data quality 
 # issues and due to the lack of extra information on the data-set removing 
-# them is a safer option
+# them is a safer option.
 ############################# some discussion ##################################
 
 # remove all rows with Null's
@@ -88,7 +88,8 @@ sales <- sales[!colSums(sales) == 0]
 # considerably lower than those of previous months (for the rows that have 
 # non-zero entries), one hypothesis is that this file is recorded before the 
 # end of September 2016 hence the data is incomplete and don't represent the 
-# accurate sales in that month, remove??????
+# accurate sales in that month, hence the data should be removed to avoid 
+# inaccurate representations of the monthly sales.
 ############################# some discussion ##################################
 
 # remove Sep.16
