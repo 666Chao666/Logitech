@@ -14,6 +14,7 @@ library(tidyverse)
 library(lubridate)
 library(ggplot2)
 library(forecast)
+library(zoo)
 library(knitr)
 
 # set default knitr chunks
@@ -40,7 +41,8 @@ df <- read.csv('use_case.csv')
 ## preprocessing and data prep
 This section focuses on preprocessing and cleaning the data. Some 
 justifications on the decisions made are provided in the comments.
-```{r EDA, echo = FALSE, message=FALSE, warning=FALSE}
+And outputs are supressed for this chunk.
+```{r EDA, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
 # some basic data info
 glimpse(df)
 
@@ -125,15 +127,15 @@ category 1 + category 2 + category 3 + numeric value if duplicates exist.
 
 We can see below, first of all, each family of products has a distinct sales 
 pattern and respectively products share a very similar behavior as their family
-counterparts. Secondly, There is a clear annual seasonal effects in product 
+counterparts. Secondly, There is a clear annual seasonal effect in product 
 family A** and C**, with both families showing a big sales surge around the end 
 of each year presumably as the result of holiday shopping seasons. On the other 
-hand, product family B** doesn't exhibit the same surge, instead it has a clear 
-quarterly seasonal cycle throughout, with a slight hint of decreasing trend on
-the two most popular products. One can postulate that the behavior of this 
-product family is the result of the nature of the product, or regional effects 
-such as the product is mainly circulating in markets in which holiday shopping
-traditions are different.
+hand, product family B** mostly doesn't exhibit the same surge, instead it has 
+a clear quarterly seasonal cycle throughout, with a slight hint of decreasing 
+trend on the two most popular products. One can postulate that the behavior of 
+this product family is the result of the nature of the product, or regional 
+effects such as the product is mainly circulating in markets in which holiday 
+shopping traditions are different.
 ```{r product family A** plot, echo = FALSE, message=FALSE, warning=FALSE}
 
 ggplot(fam_A, aes(x=as.Date(TIME), y=Sales)) +
@@ -187,18 +189,22 @@ AAM <- ts(prod_1$AAM, frequency = 12, start = c(2013, 1))
 Acf(AAM)
 Pacf(AAM)
 
-
-# clear correlations exist, hence seasonal ARIMA is a better choice
+# SARIMA to account for seasonality and correlation
 AAM_auto <- auto.arima(AAM)
 checkresiduals(AAM_auto)
 
-AAM_auto %>%
-  forecast(h=12) %>%
+# 12 months prediction
+AAM_pred <- AAM_auto %>%
+  forecast(h=12) 
+
+# prediction plot
+AAM_pred %>%
   autoplot()
 
+# summary of model
+summary(AAM_pred)
+
 ```
-
-
 
 ```{r BCW, echo = FALSE, message=FALSE, warning=FALSE}
 # largest sales counts from product family B**
@@ -208,55 +214,86 @@ prod_2 <- B[c(B_name, 'TIME')]
 
 # convert to R time series
 BCW <- ts(prod_2$BCW, frequency = 12, start = c(2013, 1))
-# LOG transformation
+# LOG transformation for the seemingly non-linear decreasing trend
 BCW <- log(BCW)
 
 # auto-correlation
 Acf(BCW)
 Pacf(BCW)
 
-# clear correlations exist, hence seasonal ARIMA is a better choice
+# seasonal ARIMA to account for seasonality and correlation
 BCW_auto <- auto.arima(BCW)
 checkresiduals(BCW_auto)
 
-BCW_auto %>%
-  forecast(h=12) %>%
+# 12 months forecast
+BCW_pred <- BCW_auto %>%
+  forecast(h=12) 
+
+# prediction plot
+BCW_pred%>%
   autoplot()
 
-
-
-# autocorrelation on the two product
-
-
-# partial-autocorrelation to check linear dependancy
-
-# for family A** and C**, the random and seasonal fluctuations are relatively 
-# constant through time, with a hit of increasing, suggesting appropriate 
-# additive model
-
-# for family B** we have relatively constant seasonal fluctuations and with a 
-# hint of decreasing trend, also suggesting a additive model
-
-# first ac and partial ac, if yes, more complicated model, MA otherwise
-
-#
-
-
-
-
-
-
-
+# summary of the model
+summary(BCW_pred)
 
 ```
 
+## save forecasting to csv
+```{r save prediction}
 
-# forecasting to csv
+AAM_pred_series <- ts(c(AAM_pred$fitted, AAM_pred$mean), start = start(AAM_pred$fitted), 
+   frequency = frequency(AAM_pred$fitted))
+BCW_pred_series <- ts(c(BCW_pred$fitted, BCW_pred$mean), start = start(BCW_pred$fitted), 
+   frequency = frequency(BCW_pred$fitted))
+
+final_pred <- data.frame('TIME' = as.yearmon(time(AAM_pred_series)),
+            'AAM' = as.matrix(AAM_pred_series), 
+            'BCW (log)' = as.matrix(BCW_pred_series))
+
+# save to csv
+write.csv(final_pred, "prediction.csv")
+
+final_pred
+
+```
 
 ## discussions
-some observations, products 
+Preprocessing and cleaning: 
+  The cleaning process takes a more conservative approach and removes all the 
+  observations with 'NULL''s and too many 0's, under the assumption that they
+  may be a sign of data quality issues. If more information is available for
+  the data-set, such as domain knowledge and how the data is collected and 
+  stored, the cleaning process may be different.
 
-some critique on menthods, choices made, data quality
-
-what are possible next steps, modelling cleaning etc.
-
+EDA:
+  The goal of reorganizing the data in such a way above is trying to gain more
+  insights on different product families. Indeed products in the same category 
+  share very similar sales patterns for all three major families. 
+  Another interesting observations is a slight hint or sales convergence in 
+  product family B, as we can see a trend of increasing for historically lower
+  sales products and a trend of decreasing for the ones with highest sales. This 
+  can be of interests of further analysis with more information on the products
+  and the market.
+  Over plotting is an issues in this section as the majority of products in each
+  family have similar sales numbers hence the lines are all clustered together,
+  yet the plot is still useful to identify product family characteristics and 
+  overall trend.
+  
+Modeling:
+  The two products selected for modeling are the ones with highest overall sales 
+  from family A and B. The reasons behind such choices are firstly, family
+  A and C shares a very similar short and long term sales patterns, without 
+  extra knowledge on the products the process of finding a suitable model for 
+  the two families will be nearly identical, hence no product is selected from 
+  C; secondly, family A and B have very different behaviors in terms of 
+  seasonality and trend, which may represent different product nature and 
+  other market affects; and lastly the highest sales of each category may 
+  present insights of the market with some analysis, hence they are suitable 
+  for the first step of the data analytic process.
+  For the modeling process this document only presents the very first step of
+  forecasting. More in depth investigation in terms of data statistical 
+  properties and explorations for stationary and seasonality transformation 
+  are needed for fine tuning the model in the future. Seasonal ARIMA model is 
+  chosen to account for seasonality and the high correlations observed in the 
+  data, and auto.arima is a good starting benchmark for future tuning. 
+  
